@@ -7,6 +7,12 @@ name: OHOS libnode
 
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/ohos-libnode.yml'
+      - 'runtime/ohos/node/**'
+      - 'tooling/ohos/prepare-node-fetch.mjs'
 
 permissions:
   contents: read
