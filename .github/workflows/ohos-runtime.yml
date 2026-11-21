@@ -36,9 +36,11 @@ jobs:
           curl -fL --retry 4 --retry-delay 5 -o /tmp/node-bin.tar.xz "$NODE_BIN_URL"
           mkdir -p /opt/node && tar -xJf /tmp/node-bin.tar.xz -C /opt/node --strip-components=1
           echo /opt/node/bin >> "$GITHUB_PATH"
+          export PATH=/opt/node/bin:$PATH
           /opt/node/bin/node --version
-          npm install -g "npm@$NPM_VERSION"
-          npm --version
+          /opt/node/bin/npm config set prefix /opt/node --location=global
+          /opt/node/bin/npm install -g "npm@$NPM_VERSION"
+          /opt/node/bin/npm --version
 
       - name: Locked build tools (esbuild 0.27.3)
         run: npm ci --ignore-scripts --no-audit --no-fund --prefix runtime/ohos/node/build-tools
