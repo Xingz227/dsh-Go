@@ -1,0 +1,224 @@
+# Packages the unsigned HAP: native set (build-hap-libs.py) plus the Dart AOT,
+# the runtime zip and the OpenHarmony SDK, compiled by check-arkts.sh --full.
+# Needs a signed profile later; this workflow stops at the unsigned HAP.
+name: OHOS HAP
+
+on:
+  workflow_dispatch:
+    inputs:
+      libnode_run_id:
+        description: 'Run id of ohos-libnode.yml that produced the libnode artifact'
+        required: true
+      runtime_run_id:
+        description: 'Run id of ohos-runtime.yml that produced the runtime zip'
+        required: true
+      aot_run_id:
+        description: 'Run id of the macOS AOT compile (ohos-aot artifact)'
+        required: true
+        default: '44856704499'
+
+permissions:
+  contents: read
+  actions: read
+
+env:
+  SDK_URL: https://repo.huaweicloud.com/openharmony/os/7.0-Release/ohos-sdk-windows_linux-public_20260829.tar.gz
+  SDK_SHA: 6bf6ae1efe8de0e8bd15ddbd7fac58bcb54d9620262a541b9b219439317a4c42
+  LLVM_SRC_URL: https://github.com/llvm/llvm-project/releases/download/llvmorg-23.1.1/llvm-project-23.1.1.src.tar.xz
+  LLVM_SRC_SHA: ebe9be46fe8756d58c5b198ffad0fa2a766257add81a4dc52179bfacc7888ee6
+  LLVM_BIN_URL: https://github.com/llvm/llvm-project/releases/download/llvmorg-23.1.1/LLVM-23.1.1-Linux-X64.tar.xz
+  NODE_SRC_URL: https://nodejs.org/dist/v24.22.1/node-v24.22.1.tar.xz
+  NODE_SRC_SHA: 4f5379796280cdaeb0c2f358fd04b6a16cc4fb7dfa83b5a8c91a9d963b435231
+  NODE_BIN_URL: https://nodejs.org/dist/v24.22.1/node-v24.22.1-linux-x64.tar.xz
+  LOADER_URL: https://codeload.github.com/deepseek-ai/dsh-node-addon-require-builtin/tar.gz/a58d3599a2e551d7d706d1ff796c9fd4bbaff63c
+  LOADER_SHA: 286616f15e4f12013988e45ad27a69b4968a9f059c8bd351e412505230577948
+  SQLITE_SHA: 0a9c8e34352dad46006aa82836d5383bff9dc6bc9ce5a60553c05aa30e6ad1f9
+  SQLITE3_SHA: 8765980411f9b6733534efe9d014fad0750fa649590598772c04692deb34886b
+
+jobs:
+  hap:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Toolchain packages
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ninja-build build-essential python3 python3-dev patch unzip xz-utils pkg-config openjdk-17-jdk
+
+      - name: Fetch OpenHarmony SDK (API 26, Linux)
+        run: |
+          set -euo pipefail
+          curl -fL --retry 4 --retry-delay 5 --max-time 3600 -o /tmp/sdk.tar.gz "$SDK_URL"
+          echo "$SDK_SHA  /tmp/sdk.tar.gz" | sha256sum -c -
+          mkdir -p /tmp/sdkx && tar -xzf /tmp/sdk.tar.gz -C /tmp/sdkx
+          zip="$(find /tmp/sdkx -name 'ets-linux*.zip' | head -1)"
+          dir="$(dirname "$zip")"
+          mkdir -p "$RUNNER_TEMP/ohos-sdk"
+          for z in "$dir"/*.zip; do unzip -q -o "$z" -d "$RUNNER_TEMP/ohos-sdk"; done
+          mkdir -p "$RUNNER_TEMP/ohos-sdk/js"
+          cat > "$RUNNER_TEMP/ohos-sdk/js/oh-uni-package.json" <<'JSON'
+          {
+            "apiVersion": "26",
+            "displayName": "Js",
+            "meta": { "metaVersion": "3.0.2" },
+            "path": "js",
+            "platformVersion": "26.0.0",
+            "releaseType": "Release",
+            "version": "26.0.0.38"
+          }
+          JSON
+          ls "$RUNNER_TEMP/ohos-sdk"
+          python3 - <<'PY'
+          import json, os
+          base = os.path.join(os.environ['RUNNER_TEMP'], 'ohos-sdk')
+          for part in ('ets', 'js', 'native', 'toolchains'):
+              d = json.load(open(os.path.join(base, part, 'oh-uni-package.json')))
+              print(part, d['apiVersion'], d['version'])
+          PY
+
+      - name: Fetch clang 23.1.1 and build runtimes
+        run: |
+          set -euo pipefail
+          curl -fL --retry 4 --retry-delay 5 --max-time 1800 -o /tmp/clang.tar.xz "$LLVM_BIN_URL"
+          mkdir -p /opt/clang && tar -xJf /tmp/clang.tar.xz -C /opt/clang --strip-components=1
+          /opt/clang/bin/clang --version
+          curl -fL --retry 4 --retry-delay 5 --max-time 1800 -o /tmp/llvm-src.tar.xz "$LLVM_SRC_URL"
+          echo "$LLVM_SRC_SHA  /tmp/llvm-src.tar.xz" | sha256sum -c -
+          python3 runtime/ohos/node/build-runtimes.py \
+            --sdk-native "$RUNNER_TEMP/ohos-sdk/native" \
+            --clang /opt/clang/bin/clang \
+            --source-archive /tmp/llvm-src.tar.xz \
+            --work "$RUNNER_TEMP/rt-build" \
+            --output "$RUNNER_TEMP/rt-out" \
+            --jobs 4
+          ls "$RUNNER_TEMP/rt-out/lib"
+
+      - name: Fetch Node 24.22.1
+        run: |
+          set -euo pipefail
+          curl -fL --retry 4 --retry-delay 5 --max-time 1800 -o /tmp/node-src.tar.xz "$NODE_SRC_URL"
+          echo "$NODE_SRC_SHA  /tmp/node-src.tar.xz" | sha256sum -c -
+          mkdir -p "$RUNNER_TEMP/node-src" && tar -xJf /tmp/node-src.tar.xz -C "$RUNNER_TEMP/node-src" --strip-components=1
+          curl -fL --retry 4 --retry-delay 5 --max-time 1800 -o /tmp/node-bin.tar.xz "$NODE_BIN_URL"
+          mkdir -p /opt/node && tar -xJf /tmp/node-bin.tar.xz -C /opt/node --strip-components=1
+          /opt/node/bin/node --version
+
+      - name: Pull the libnode artifact
+        uses: actions/download-artifact@v4
+        with:
+          pattern: ohos-libnode-*
+          run-id: ${{ inputs.libnode_run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: ${{ runner.temp }}/libnode
+          merge-multiple: true
+
+      - name: Pull the runtime artifact
+        uses: actions/download-artifact@v4
+        with:
+          pattern: ohos-runtime-*
+          run-id: ${{ inputs.runtime_run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: ${{ runner.temp }}/runtime
+          merge-multiple: true
+
+      - name: Pull the Dart AOT artifact
+        uses: actions/download-artifact@v4
+        with:
+          pattern: ohos-aot-*
+          run-id: ${{ inputs.aot_run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: ${{ runner.temp }}/aot
+          merge-multiple: true
+
+      - name: Locate the artifacts
+        run: |
+          set -euo pipefail
+          LIBNODE="$(dirname "$(find "$RUNNER_TEMP/libnode" -name libnode.so | head -1)")"
+          test -f "$LIBNODE/libnode.so"
+          echo "LIBNODE=$LIBNODE" >> "$GITHUB_ENV"
+          RUNTIME="$(find "$RUNNER_TEMP/runtime" -name 'dsh-runtime-rawfile.zip' | head -1)"
+          test -f "$RUNTIME"
+          echo "RUNTIME=$RUNTIME" >> "$GITHUB_ENV"
+          AOT="$(dirname "$(dirname "$(find "$RUNNER_TEMP/aot" -name app.so | head -1)")")"
+          test -f "$AOT/arm64-v8a/app.so"
+          test -f "$AOT/flutter_assets/AssetManifest.bin"
+          echo "AOT=$AOT" >> "$GITHUB_ENV"
+          ls -la "$LIBNODE"
+          du -h "$RUNTIME"
+
+      - name: Fetch build-time packages
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/pkgs" && cd "$RUNNER_TEMP/pkgs"
+          npm pack @deepseek-ai/node-addon-system@0.1.2
+          tar xzf deepseek-ai-node-addon-system-0.1.2.tgz && mv package node-addon-system
+          npm pack node-addon-api@8.9.2
+          tar xzf node-addon-api-8.9.2.tgz && mv package node-addon-api
+          curl -fL --retry 4 -o loader.tgz "$LOADER_URL"
+          echo "$LOADER_SHA  loader.tgz" | sha256sum -c -
+          mkdir loader && tar xzf loader.tgz -C loader --strip-components=1
+          test -d loader/packages/native
+          for y in 2026 2025; do
+            curl -fL --retry 2 -o sqlite.zip "https://www.sqlite.org/$y/sqlite-amalgamation-3540100.zip" && break || true
+          done
+          echo "$SQLITE_SHA  sqlite.zip" | sha256sum -c -
+          curl -fL --retry 4 -o sqlite3.tgz "https://pub.dev/api/archives/sqlite3-3.9.1.tar.gz"
+          echo "$SQLITE3_SHA  sqlite3.tgz" | sha256sum -c -
+          mkdir sqlite3 && tar xzf sqlite3.tgz -C sqlite3
+          test -f sqlite3/lib/src/hook/compile/description.dart
+          ls
+
+      - name: Build the native set
+        run: |
+          set -euo pipefail
+          export PATH=/opt/node/bin:$PATH
+          python3 -B runtime/ohos/native/build-hap-libs.py \
+            --sdk-native "$RUNNER_TEMP/ohos-sdk/native" \
+            --clang /opt/clang/bin/clang \
+            --cxx-runtime "$RUNNER_TEMP/rt-out" \
+            --libnode-output "$LIBNODE" \
+            --node-source "$RUNNER_TEMP/node-src" \
+            --flock-package "$RUNNER_TEMP/pkgs/node-addon-system" \
+            --loader-source "$RUNNER_TEMP/pkgs/loader" \
+            --node-addon-api "$RUNNER_TEMP/pkgs/node-addon-api" \
+            --sqlite-amalgamation "$RUNNER_TEMP/pkgs/sqlite.zip" \
+            --sqlite3-package "$RUNNER_TEMP/pkgs/sqlite3" \
+            --work "$RUNNER_TEMP/native-work" \
+            --output "$RUNNER_TEMP/native-out"
+          ls -la "$RUNNER_TEMP/native-out"
+
+      - name: Package the unsigned HAP
+        env:
+          JAVA_HOME: /usr/lib/jvm/java-17-openjdk-amd64
+          DSH_NODE_HEADERS: ${{ runner.temp }}/node-src/src
+        run: |
+          set -euo pipefail
+          bash tooling/ohos/check-arkts.sh --full --hms-stubs --distribution device \
+            --sdk "$RUNNER_TEMP/ohos-sdk" \
+            --work "$RUNNER_TEMP/arkts-work" \
+            --aot "$AOT" \
+            --native "$RUNNER_TEMP/native-out" \
+            --runtime "$RUNTIME" \
+            --node-headers "$RUNNER_TEMP/node-src/src"
+          find "$RUNNER_TEMP/arkts-work" -name "*.hap" -o -name "*.hsp" | head -10
+
+      - name: Report
+        if: always()
+        run: |
+          df -h /
+          find "$RUNNER_TEMP/arkts-work" -maxdepth 3 -name "*.hap" 2>/dev/null || true
+
+      - name: Keep the unsigned HAP
+        uses: actions/upload-artifact@v4
+        with:
+          name: ohos-hap-unsigned-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/arkts-work/**/*.hap
+            ${{ runner.temp }}/native-out
+          if-no-files-found: warn
+          retention-days: 14
+          compression-level: 0
