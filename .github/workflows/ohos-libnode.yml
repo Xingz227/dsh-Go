@@ -22,7 +22,7 @@ env:
   SDK_SHA: 6bf6ae1efe8de0e8bd15ddbd7fac58bcb54d9620262a541b9b219439317a4c42
   LLVM_SRC_URL: https://github.com/llvm/llvm-project/releases/download/llvmorg-23.1.1/llvm-project-23.1.1.src.tar.xz
   LLVM_SRC_SHA: ebe9be46fe8756d58c5b198ffad0fa2a766257add81a4dc52179bfacc7888ee6
-  LLVM_BIN_URL: https://github.com/llvm/llvm-project/releases/download/llvmorg-23.1.1/clang+llvm-23.1.1-x86_64-linux-gnu-ubuntu-24.04.tar.xz
+  LLVM_BIN_URL: https://github.com/llvm/llvm-project/releases/download/llvmorg-23.1.1/LLVM-23.1.1-Linux-X64.tar.xz
   NODE_SRC_URL: https://nodejs.org/dist/v24.22.1/node-v24.22.1.tar.xz
   NODE_SRC_SHA: 4f5379796280cdaeb0c2f358fd04b6a16cc4fb7dfa83b5a8c91a9d963b435231
   NODE_BIN_URL: https://nodejs.org/dist/v24.22.1/node-v24.22.1-linux-x64.tar.xz
