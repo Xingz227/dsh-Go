@@ -49,7 +49,15 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y -qq ninja-build build-essential python3 python3-dev patch unzip xz-utils pkg-config openjdk-17-jdk
 
+      - name: Cache the OpenHarmony SDK
+        id: sdk
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/ohos-sdk
+          key: ohos-sdk-${{ env.SDK_SHA }}
+
       - name: Fetch OpenHarmony SDK (API 26, Linux)
+        if: steps.sdk.outputs.cache-hit != 'true'
         run: |
           set -euo pipefail
           curl -fL --retry 4 --retry-delay 5 --max-time 3600 -o /tmp/sdk.tar.gz "$SDK_URL"
@@ -176,7 +184,7 @@ jobs:
         run: |
           set -euo pipefail
           export PATH=/opt/node/bin:$PATH
-          python3 -B runtime/ohos/native/build-hap-libs.py \
+          if ! python3 -B runtime/ohos/native/build-hap-libs.py \
             --sdk-native "$RUNNER_TEMP/ohos-sdk/native" \
             --clang /opt/clang/bin/clang \
             --cxx-runtime "$RUNNER_TEMP/rt-out" \
@@ -188,7 +196,14 @@ jobs:
             --sqlite-amalgamation "$RUNNER_TEMP/pkgs/sqlite.zip" \
             --sqlite3-package "$RUNNER_TEMP/pkgs/sqlite3" \
             --work "$RUNNER_TEMP/native-work" \
-            --output "$RUNNER_TEMP/native-out"
+            --output "$RUNNER_TEMP/native-out"; then
+            echo "=== native build logs ==="
+            find "$RUNNER_TEMP/native-work" -name "*.log" | while read -r f; do
+              echo "--- $f ---"
+              tail -80 "$f"
+            done
+            exit 1
+          fi
           ls -la "$RUNNER_TEMP/native-out"
 
       - name: Package the unsigned HAP
