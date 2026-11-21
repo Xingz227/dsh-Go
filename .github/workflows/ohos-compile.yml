@@ -1,4 +1,5 @@
 # Compiles the whole app for HarmonyOS arm64 up to libapp.so on a macOS runner,
+# fork trigger 2026-11-21: 手动触发一次 macOS AOT 编译
 # where oh-flutter publishes its AOT tools (app/ohos/README.md). Needs no secrets:
 # packaging and signing a HAP is a later job, once Command Line Tools and a
 # signing profile exist.
