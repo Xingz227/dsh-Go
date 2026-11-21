@@ -83,9 +83,24 @@ jobs:
             --regex-artifact "runtime/ohos/process/build/re2js-unicode.mjs" \
             --esbuild-prefix "runtime/ohos/node/build-tools" \
             --imports-report "$RUNNER_TEMP/imports-report.json" \
-            --out "$RUNNER_TEMP/dsh-runtime-rawfile.zip" \
+            --out "$RUNNER_TEMP/runtime-out" \
             --node /opt/node/bin/node \
             --runtime-core "app/ohos/entry/src/main/ets/runtime/RuntimeCore.ets"
+          python3 - "$RUNNER_TEMP/runtime-out" "$RUNNER_TEMP/dsh-runtime-rawfile.zip" <<'PY'
+          import pathlib, sys, zipfile
+          out, dest = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])
+          src = out / 'rawfile/dsh-runtime/runtime.zip'
+          if not src.is_file():
+              raise SystemExit(f'missing {src}')
+          with zipfile.ZipFile(dest, 'w', zipfile.ZIP_STORED) as bundle:
+              bundle.write(src, 'dsh-runtime/runtime.zip')
+          with zipfile.ZipFile(dest) as bundle:
+              entries = bundle.infolist()
+              assert len(entries) == 1, [e.filename for e in entries]
+              assert entries[0].filename == 'dsh-runtime/runtime.zip', entries[0].filename
+              assert entries[0].compress_type == zipfile.ZIP_STORED
+          print('wrapped', dest.stat().st_size, 'bytes')
+          PY
           ls -la "$RUNNER_TEMP/dsh-runtime-rawfile.zip"
           sha256sum "$RUNNER_TEMP/dsh-runtime-rawfile.zip"
 
