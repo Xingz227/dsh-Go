@@ -284,7 +284,10 @@ def write(rel, text):
 
 edit("build-profile.json5",
      (r'"runtimeOS": "HarmonyOS"', '"runtimeOS": "OpenHarmony"'),
-     (r'"compatibleSdkVersion": ("[^"]+")', r'"compileSdkVersion": \1,\n        "compatibleSdkVersion": \1'))
+     (r'"compatibleSdkVersion": ("[^"]+")',
+      r'"compileSdkVersion": \1,\n'
+      r'        "buildOption": { "strictMode": { "useNormalizedOHMUrl": true } },\n'
+      r'        "compatibleSdkVersion": \1'))
 edit("entry/build-profile.json5", (r'"runtimeOS": "HarmonyOS"', '"runtimeOS": "OpenHarmony"'))
 if full == "0":
     edit("entry/build-profile.json5", (r'"externalNativeOptions": \{.*?\},\s*', ''))
